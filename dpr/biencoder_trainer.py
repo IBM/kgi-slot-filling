@@ -1,0 +1,49 @@
+from torch_util.transformer_optimize import TransformerOptimize
+from dpr.biencoder_hypers import BiEncoderHypers
+from dpr.biencoder_gcp import BiEncoder
+from dpr.dataloader_biencoder import BiEncoderLoader
+from transformers import (DPRContextEncoderTokenizerFast, DPRQuestionEncoderTokenizerFast)
+import logging
+import time
+
+logger = logging.getLogger(__name__)
+
+
+class BiEncoderTrainArgs(BiEncoderHypers):
+    def __init__(self):
+        super().__init__()
+        self.train_dir = ''
+        self.num_instances = -1
+        self.__required_args__ = ['train_dir', 'output_dir', 'num_instances']
+
+
+args = BiEncoderTrainArgs().fill_from_args()
+qry_tokenizer = DPRQuestionEncoderTokenizerFast.from_pretrained('facebook/dpr-question_encoder-multiset-base')
+ctx_tokenizer = DPRContextEncoderTokenizerFast.from_pretrained('facebook/dpr-ctx_encoder-multiset-base')
+model = BiEncoder(args)
+model.to(args.device)
+model.train()
+optimizer = TransformerOptimize(args, args.num_train_epochs * args.num_instances, model)
+loader = BiEncoderLoader(args, args.per_gpu_train_batch_size, qry_tokenizer, ctx_tokenizer, args.train_dir)
+last_save_time = time.time()
+
+while True:
+    batches = loader.get_dataloader()
+    if not optimizer.should_continue() or batches is None:
+        break
+    for batch in batches:
+        loss, accuracy = optimizer.model(**loader.batch_dict(batch))
+        optimizer.step_loss(loss, accuracy=accuracy)
+        if not optimizer.should_continue():
+            break
+    if time.time()-last_save_time > 60*60:
+        # save once an hour or after each file (whichever is less frequent)
+        model_to_save = (optimizer.model.module if hasattr(optimizer.model, "module") else optimizer.model)
+        logger.info(f'saving to {args.output_dir}')
+        model_to_save.save(args.output_dir)
+        last_save_time = time.time()
+
+# save after running out of files or target num_instances
+model_to_save = (optimizer.model.module if hasattr(optimizer.model, "module") else optimizer.model)
+logger.info(f'saving to {args.output_dir}')
+model_to_save.save(args.output_dir)
