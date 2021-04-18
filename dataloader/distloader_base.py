@@ -4,8 +4,6 @@ import os
 import glob
 import torch
 from torch_util.hypers_base import HypersBase
-import numpy as np
-from transformers import PreTrainedTokenizer
 from util.line_corpus import jsonl_lines, read_open
 from typing import Iterable
 import ujson as json

@@ -21,9 +21,3 @@ rag_qenocder = rag_model.question_encoder
 rag_qenocder.load_state_dict(qencoder.state_dict(), strict=True)
 
 rag_model.save_pretrained(opts.save_dir)
-
-"""
-python /root/wksp/retrieve-write/rag/dpr/prepare_rag_model.py \
---save_dir /data/DPR/model1/rag_token_generation  \
---qry_encoder_path /data/DPR/model1/qry_encoder
-"""

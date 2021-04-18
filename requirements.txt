@@ -1,0 +1,4 @@
+transformers
+ujson
+requests
+faiss

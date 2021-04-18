@@ -17,31 +17,6 @@ from transformers import (
 
 logger = logging.getLogger(__name__)
 
-"""
-pysync --dir /root/wksp $RW1
-
-conda activate rag
-export PYTHONPATH=/root/wksp/retrieve-write
-export CUDA_VISIBLE_DEVICES=1
-
-python /root/wksp/retrieve-write/rag/dpr/index_simple_corpus.py \
---dpr_ctx_encoder_path /data/KILT/models/DPR/zsRE/ctx_encoder \
---corpus /data/slot_filling/tacred_zeroshot/corpus.jsonl \
---output_dir /data/slot_filling/tacred_zeroshot/simple_corpus_zsRE
-
-python /root/wksp/retrieve-write/rag/dpr/index_simple_corpus.py \
---embed 1of2 \
---dpr_ctx_encoder_path /data/KILT/models/DPR/zsRE/ctx_encoder \
---corpus /data/KILT/kilt_passages  \
---output_dir /data/KILT/kilt_passages_zsRE_simple
-
-python /root/wksp/retrieve-write/rag/dpr/index_simple_corpus.py \
---embed 2of2 \
---dpr_ctx_encoder_path /data/KILT/models/DPR/zsRE/ctx_encoder \
---corpus /data/KILT/kilt_passages \
---output_dir /data/KILT/kilt_passages_zsRE_simple
-"""
-
 
 class Options(IndexOptions):
     def __init__(self):
@@ -121,6 +96,5 @@ passages.close()
 with write_open(os.path.join(opts.output_dir, f'offsets_{embed_num}_of_{embed_count}.npy'), binary=True) as f:
     np.save(f, np.array(offsets, dtype=np.int64), allow_pickle=False)
 
-# TODO: only if the embeds are all finished
 if embed_count == 1:
     build_index(opts.output_dir, os.path.join(opts.output_dir, 'index.faiss'), opts)

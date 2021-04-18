@@ -95,11 +95,3 @@ if __name__ == '__main__':
     opts = Options()
     fill_from_args(opts)
     run(opts)
-"""
-python /root/wksp/retrieve-write/rag/slot_filling/corpus_server_direct.py \
---port 5001 --corpus_dir /data/slot_filling/tacred_zeroshot/corpus > /data/slot_filling/logs/corpus_direct_server.log 2>&1 &
-
-python /root/wksp/retrieve-write/rag/slot_filling/corpus_client.py \
---endpoint http://localhost:5001
-
-"""

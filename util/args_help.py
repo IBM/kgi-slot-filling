@@ -1,4 +1,3 @@
-import os
 from argparse import ArgumentParser
 from enum import Enum, EnumMeta
 import logging
