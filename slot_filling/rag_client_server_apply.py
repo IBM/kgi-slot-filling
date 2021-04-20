@@ -6,7 +6,7 @@ import ujson as json
 from typing import List
 import numpy as np
 import functools
-from slot_filling.rag_client_server_train import RagHypers
+from slot_filling.rag_hypers import RagHypers
 from util.reporting import Reporting
 import logging
 from slot_filling.corpus_client import CorpusClient
@@ -38,15 +38,7 @@ class Options(RagHypers):
 opts = Options().fill_from_args()
 torch.set_grad_enabled(False)
 
-# initialize the model and index
-tokenizer = RagTokenizer.from_pretrained(opts.model_name)
-# rag_conf = RagConfig.from_pretrained(opts.model_name)
-if 'rag-token' in opts.model_name:
-    model = RagTokenForGeneration.from_pretrained(opts.model_path if opts.model_path else opts.model_name)
-elif 'rag-sequence' in opts.model_name:
-    model = RagSequenceForGeneration.from_pretrained(opts.model_path if opts.model_path else opts.model_name)
-else:
-    raise AssertionError
+tokenizer, model = opts.get_tokenizer_and_model()
 
 model = model.to(opts.device)
 model.eval()

@@ -1,8 +1,5 @@
-from torch_util.hypers_base import HypersBase
+from slot_filling.rag_hypers import RagHypers
 from torch_util.transformer_optimize import TransformerOptimize
-from transformers import RagTokenizer, RagSequenceForGeneration, RagTokenForGeneration
-import torch
-import os
 from util.line_corpus import read_lines, block_shuffle
 import ujson as json
 import random
@@ -10,51 +7,13 @@ from slot_filling.rag_util import prepare_seq2seq_batch
 from slot_filling.corpus_client import CorpusClient
 from slot_filling.dataset_stats import get_relations_by_fold, get_relation_from_inst
 import logging
-import signal
+
 
 logger = logging.getLogger(__name__)
 
-
-class RagHypers(HypersBase):
-    def __init__(self):
-        super().__init__()
-        self.kilt_data = ''
-        self.model_name = 'facebook/rag-token-nq'
-        self.model_path = ''
-        self.no_leading_space = False
-        self.corpus_endpoint = ''
-        self.n_docs = 5
-        self.fold = ''  # {1-n}of{n}
-        # only used for train
-        self.num_instances = -1
-        self.warmup_fraction = 0.1
-        self.__required_args__ = ['kilt_data', 'num_instances', 'output_dir', 'corpus_endpoint']
-
-    def _post_init(self):
-        super()._post_init()
-        # launch the server with a fork if corpus_endpoint is a directory
-        self._server_pid = CorpusClient.ensure_server(self)
-
-    def cleanup_corpus_server(self):
-        if not hasattr(self, '_server_pid') or self._server_pid < 0:
-            # no corpus server was started
-            return
-        if self.world_size > 1:
-            torch.distributed.barrier()  # wait for everyone to finish before killing the corpus server
-        if self._server_pid > 0:
-            os.kill(self._server_pid, signal.SIGKILL)
-
-
 hypers = RagHypers().fill_from_args()
 
-# initialize the model and index
-tokenizer = RagTokenizer.from_pretrained(hypers.model_name)
-if 'rag-token' in hypers.model_name:
-    model = RagTokenForGeneration.from_pretrained(hypers.model_path if hypers.model_path else hypers.model_name)
-elif 'rag-sequence' in hypers.model_name:
-    model = RagSequenceForGeneration.from_pretrained(hypers.model_path if hypers.model_path else hypers.model_name)
-else:
-    raise AssertionError
+tokenizer, model = hypers.get_tokenizer_and_model()
 
 model = model.to(hypers.device)
 model.train()
