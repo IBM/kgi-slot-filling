@@ -4,6 +4,14 @@ This is the code for our KILT leaderboard submission to the T-REx and zsRE tasks
 
 Our model is described in: [Zero-shot Slot Slot Filling with DPR and RAG](https://arxiv.org/abs/2104.08610)  
 
+# Available from Hugging Face as:
+| Dataset | Type | Model Name | Tokenizer Name |
+| ------- | ----- | ---- | --------- |
+| T-REx   |  DPR (ctx)  | michaelrglass/dpr-ctx_encoder-multiset-base-kgi0-trex | facebook/dpr-ctx_encoder-multiset-base
+| T-REx   |  RAG  | michaelrglass/rag-token-nq-kgi0-trex | rag-token-nq
+| zsRE    |  DPR (ctx)  | michaelrglass/dpr-ctx_encoder-multiset-base-kgi0-zsre | facebook/dpr-ctx_encoder-multiset-base
+| zsRE    |  RAG  | michaelrglass/rag-token-nq-kgi0-zsre | rag-token-nq
+
 # Process to reproduce
 Download the [KILT data and knowledge source](https://github.com/facebookresearch/KILT)
 * T-REx: [train](http://dl.fbaipublicfiles.com/KILT/trex-train-kilt.jsonl), [dev](http://dl.fbaipublicfiles.com/KILT/trex-dev-kilt.jsonl)

@@ -2,3 +2,4 @@ transformers
 ujson
 requests
 faiss
+flask
