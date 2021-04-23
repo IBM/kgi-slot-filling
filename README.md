@@ -2,7 +2,7 @@
 This is the code for our KILT leaderboard submission to the T-REx and zsRE tasks.  It includes code for training a DPR model then continuing training with RAG.
 
 
-Our model is described in: [Zero-shot Slot Slot Filling with DPR and RAG](https://arxiv.org/abs/2104.08610)  
+Our model is described in: [Zero-shot Slot Filling with DPR and RAG](https://arxiv.org/abs/2104.08610)  
 
 # Available from Hugging Face as:
 | Dataset | Type | Model Name | Tokenizer Name |
