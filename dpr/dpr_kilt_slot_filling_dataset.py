@@ -31,6 +31,7 @@ class Options:
         self.output_file = ''
         self.min_overlap = 0.75
         self.for_supporting_passage = False
+        self.__required_args__ = ['kilt_data', 'passage_ids', 'output_file']
 
 
 opts = Options()

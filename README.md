@@ -21,19 +21,19 @@ Download the [KILT data and knowledge source](https://github.com/facebookresearc
 Segment the KILT Knowledge Source into passages:
 ```bash
 python slot_filling/kilt_passage_corpus.py \
---kilt_corpus kilt_knowledgesource.json --output_dir kilt_passages
+--kilt_corpus kilt_knowledgesource.json --output_dir kilt_passages --passage_ids passage_ids.txt
 ```
 
 Generate the first phase of the DPR training data
 ```bash
 python dpr/dpr_kilt_slot_filling_dataset.py \
 --kilt_data structured_zeroshot-train-kilt.jsonl \
---passage_dir kilt_passages \
+--passage_ids passage_ids.txt \
 --output_file zsRE_train_positive_pids.jsonl
 
 python dpr/dpr_kilt_slot_filling_dataset.py \
 --kilt_data trex-train-kilt.jsonl \
---passage_dir kilt_passages \
+--passage_ids passage_ids.txt \
 --output_file trex_train_positive_pids.jsonl
 ```
 
@@ -49,9 +49,10 @@ sh Anserini/target/appassembler/bin/IndexCollection -collection JsonCollection \
 -generator LuceneDocumentGenerator -threads 40 -input anserini_passages \
 -index anserini_passage_index -storePositions -storeDocvectors -storeRawDocs
 
-DPRTrainingData
--passageIndex anserini_passage_index
--positivePidData ${dataset}_train_positive_pids.jsonl
+export CLASSPATH=irPretraining.jar:Anserini/target/anserini-0.4.1-SNAPSHOT-fatjar.jar
+java com.ibm.research.ai.pretraining.retrieval.DPRTrainingData \
+-passageIndex anserini_passage_index \
+-positivePidData ${dataset}_train_positive_pids.jsonl \
 -trainingData ${dataset}_dpr_training_data.jsonl
 ```
 

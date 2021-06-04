@@ -15,9 +15,11 @@ class Options:
     def __init__(self):
         self.kilt_corpus = ''
         self.output_dir = ''
+        self.passage_ids = ''
         self.num_output_files = 8
         self.max_passage_words = 100
         self.min_passage_words = 50
+        self.__required_args__ = ['kilt_corpus', 'output_dir', 'passage_ids']
 
 
 _WHITESPACE = re.compile(r'\s+')
@@ -32,7 +34,7 @@ opts = Options()
 fill_from_args(opts)
 
 out_files = [write_open(os.path.join(opts.output_dir, f'{i}.jsonl.gz')) for i in range(opts.num_output_files)]
-passage_id_file = write_open(os.path.join(opts.output_dir, 'passage_ids.txt'))
+passage_id_file = write_open(opts.passage_ids)
 # passage id format is: doc_id::[start_para,end_para]
 # if the interval is doc_id::[start_para,end_para) then some (but not all) of end_para is included
 # if the interval is doc_id::(start_para,end_para] then some (but not all) of start_para is included
