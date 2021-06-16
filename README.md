@@ -49,7 +49,7 @@ sh Anserini/target/appassembler/bin/IndexCollection -collection JsonCollection \
 -generator LuceneDocumentGenerator -threads 40 -input anserini_passages \
 -index anserini_passage_index -storePositions -storeDocvectors -storeRawDocs
 
-export CLASSPATH=irPretraining.jar:Anserini/target/anserini-0.4.1-SNAPSHOT-fatjar.jar
+export CLASSPATH=dprBM25.jar:Anserini/target/anserini-0.4.1-SNAPSHOT-fatjar.jar
 java com.ibm.research.ai.pretraining.retrieval.DPRTrainingData \
 -passageIndex anserini_passage_index \
 -positivePidData ${dataset}_train_positive_pids.jsonl \
