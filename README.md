@@ -49,7 +49,7 @@ sh Anserini/target/appassembler/bin/IndexCollection -collection JsonCollection \
 -generator LuceneDocumentGenerator -threads 40 -input anserini_passages \
 -index anserini_passage_index -storePositions -storeDocvectors -storeRawDocs
 
-export CLASSPATH=dprBM25.jar:Anserini/target/anserini-0.4.1-SNAPSHOT-fatjar.jar
+export CLASSPATH=jar/dprBM25.jar:Anserini/target/anserini-0.4.1-SNAPSHOT-fatjar.jar
 java com.ibm.research.ai.pretraining.retrieval.DPRTrainingData \
 -passageIndex anserini_passage_index \
 -positivePidData ${dataset}_train_positive_pids.jsonl \
@@ -148,4 +148,17 @@ python eval/convert_for_kilt_eval.py \
 --apply_file predictions/${dataset}_dev.jsonl \
 --eval_file predictions/${dataset}_dev_kilt_format.jsonl
 
+```
+
+Run official evaluation script
+```bash
+# install KILT evaluation scripts
+git clone https://github.com/facebookresearch/KILT.git
+cd KILT
+conda create -n kilt37 -y python=3.7 && conda activate kilt37
+pip install -r requirements.txt
+export PYTHONPATH=`pwd`
+
+# run evaluation
+python kilt/eval_downstream.py predictions/${dataset}_dev_kilt_format.jsonl ${dev_file}
 ```
