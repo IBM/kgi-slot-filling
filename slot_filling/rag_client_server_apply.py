@@ -159,7 +159,10 @@ def generate_one_instance(candidates, context_input_ids, context_attention_mask,
         )
         # BeamSearchDecoderOnlyOutput: sequences, sequences_scores
         generated_ids = beam_search_output.sequences.detach().cpu().numpy()
-        generated_scores = beam_search_output.sequences_scores.detach().cpu().numpy()
+        if hasattr(beam_search_output, 'sequences_scores') and beam_search_output.sequences_scores is not None:
+            generated_scores = beam_search_output.sequences_scores.detach().cpu().numpy()
+        else:
+            generated_scores = np.zeros(generated_ids.shape[0], dtype=np.float)
 
         answer_strings = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)
         if candidates:
