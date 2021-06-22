@@ -18,7 +18,7 @@ opts = Options()
 fill_from_args(opts)
 
 # pid, title, text -> id, contents
-outfiles = [write_open(os.path.join(opts.output, f'{j}.jsonl')) for j in range(opts.file_count)]
+outfiles = [write_open(os.path.join(opts.output, f'{j}.json')) for j in range(opts.file_count)]
 for line_ndx, line in enumerate(jsonl_lines(opts.input)):
     jobj = json.loads(line)
     f = outfiles[line_ndx % len(outfiles)]

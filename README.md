@@ -37,7 +37,16 @@ python dpr/dpr_kilt_slot_filling_dataset.py \
 --output_file trex_train_positive_pids.jsonl
 ```
 
-download and build [Anserini](https://github.com/castorini/anserini)
+Download and build [Anserini](https://github.com/castorini/anserini). 
+You will need to have [Maven](https://maven.apache.org/index.html) and a [Java JDK](https://jdk.java.net/).
+```bash
+git clone https://github.com/castorini/anserini.git
+cd anserini
+# to use the 0.4.1 version dprBM25.jar is built for
+git checkout 3a60106fdc83473d147218d78ae7dca7c3b6d47c
+export JAVA_HOME=your JDK directory
+mvn clean package appassembler:assemble
+```
 
 put the title/text into the training instance with hard negatives from BM25
 ```bash
@@ -58,6 +67,9 @@ java com.ibm.research.ai.pretraining.retrieval.DPRTrainingData \
 
 Train DPR
 ```bash
+# multi-gpu is not well supported
+export CUDA_VISIBLE_DEVICES=0
+
 python dpr/biencoder_trainer.py \
 --train_dir zsRE_dpr_training_data.jsonl \
 --output_dir models/DPR/zsRE \

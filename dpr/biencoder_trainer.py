@@ -18,6 +18,13 @@ class BiEncoderTrainArgs(BiEncoderHypers):
 
 
 args = BiEncoderTrainArgs().fill_from_args()
+if args.n_gpu != 1:
+    logger.error('Multi-GPU training must be through torch.distributed')
+    exit(1)
+if args.world_size > 1 and 0 < args.encoder_gpu_train_limit:
+    logger.error('Cannot support both distributed training and gradient checkpointing.  '
+                 'Train with a single GPU or with --encoder_gpu_train_limit 0')
+    exit(1)
 qry_tokenizer = DPRQuestionEncoderTokenizerFast.from_pretrained('facebook/dpr-question_encoder-multiset-base')
 ctx_tokenizer = DPRContextEncoderTokenizerFast.from_pretrained('facebook/dpr-ctx_encoder-multiset-base')
 model = BiEncoder(args)
