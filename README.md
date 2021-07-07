@@ -104,7 +104,7 @@ python dpr/index_simple_corpus.py \
 --corpus kilt_passages  \
 --output_dir kilt_passages_${dataset}
 
-python rag/dpr/index_simple_corpus.py \
+python dpr/index_simple_corpus.py \
 --embed 2of2 \
 --dpr_ctx_encoder_path models/DPR/${dataset}/ctx_encoder \
 --corpus kilt_passages \

@@ -22,13 +22,23 @@ class Options:
 opts = Options()
 fill_from_args(opts)
 
+
+def to_distinct_doc_ids(passage_ids):
+    doc_ids = []
+    for pid in passage_ids:
+        doc_id = pid[:pid.find(':')]
+        if doc_id not in doc_ids:
+            doc_ids.append(doc_id)
+    return doc_ids
+
+
 doc_counts = np.zeros(5, dtype=np.int32)
 with write_open(opts.eval_file) as f:
     for line in read_lines(opts.apply_file):
         jobj = json.loads(line)
         predictions = jobj['predictions']
-        doc_ids = jobj['doc_ids']
-        wids = list(set([doc_id[:doc_id.find(':')] for doc_id in doc_ids]))
+        doc_ids = jobj['doc_ids']  # these are actually passage ids
+        wids = to_distinct_doc_ids(doc_ids)  # convert to Wikipedia document ids
         doc_count = len(wids)
         doc_counts[-1 + (doc_count if doc_count <= 5 else 5)] += 1
         output = [{'answer': predictions[0],
