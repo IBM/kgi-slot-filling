@@ -2,7 +2,7 @@
 This is the code for our KILT leaderboard submission to the T-REx and zsRE tasks.  It includes code for training a DPR model then continuing training with RAG.
 
 
-KGI model is described in: [Robust Retrieval Augmented Generation for Zero-shot Slot Filling](https://arxiv.org/abs/2108.13934) accepted at EMNLP 2021.  
+KGI model is described in: [Robust Retrieval Augmented Generation for Zero-shot Slot Filling](https://arxiv.org/abs/2108.13934) (EMNLP 2021).  
 
 # Available from Hugging Face as:
 | Dataset | Type | Model Name | Tokenizer Name |
