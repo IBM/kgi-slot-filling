@@ -2,7 +2,7 @@
 This is the code for our KILT leaderboard submission to the T-REx and zsRE tasks.  It includes code for training a DPR model then continuing training with RAG.
 
 
-Our model is described in: [Zero-shot Slot Filling with DPR and RAG](https://arxiv.org/abs/2104.08610)  
+KGI model is described in: [Robust Retrieval Augmented Generation for Zero-shot Slot Filling](https://arxiv.org/abs/2108.13934) accepted at EMNLP  
 
 # Available from Hugging Face as:
 | Dataset | Type | Model Name | Tokenizer Name |
@@ -173,4 +173,16 @@ export PYTHONPATH=`pwd`
 
 # run evaluation
 python kilt/eval_downstream.py predictions/${dataset}_dev_kilt_format.jsonl ${dev_file}
+```
+
+## Citation
+```bibtex
+@article{glass2021robust,
+      title={Robust Retrieval Augmented Generation for Zero-shot Slot Filling}, 
+      author={Michael Glass and Gaetano Rossiello and Md Faisal Mahbub Chowdhury and Alfio Gliozzo},
+      year={2021},
+      eprint={2108.13934},
+      archivePrefix={arXiv},
+      primaryClass={cs.CL}
+}
 ```
