@@ -2,7 +2,7 @@
 This is the code for our KILT leaderboard submission to the T-REx and zsRE tasks.  It includes code for training a DPR model then continuing training with RAG.
 
 
-KGI model is described in: [Robust Retrieval Augmented Generation for Zero-shot Slot Filling](https://arxiv.org/abs/2108.13934) (EMNLP 2021).  
+KGI model is described in: [Robust Retrieval Augmented Generation for Zero-shot Slot Filling](https://aclanthology.org/2021.emnlp-main.148/) (EMNLP 2021).  
 
 # Available from Hugging Face as:
 | Dataset | Type | Model Name | Tokenizer Name |
@@ -177,12 +177,15 @@ python kilt/eval_downstream.py predictions/${dataset}_dev_kilt_format.jsonl ${de
 
 ## Citation
 ```bibtex
-@article{glass2021robust,
-      title={Robust Retrieval Augmented Generation for Zero-shot Slot Filling}, 
-      author={Michael Glass and Gaetano Rossiello and Md Faisal Mahbub Chowdhury and Alfio Gliozzo},
-      year={2021},
-      eprint={2108.13934},
-      archivePrefix={arXiv},
-      primaryClass={cs.CL}
+@inproceedings{DBLP:conf/emnlp/GlassRCG21,
+  author    = {Michael R. Glass and
+               Gaetano Rossiello and
+               Md. Faisal Mahbub Chowdhury and
+               Alfio Gliozzo},
+  title     = {Robust Retrieval Augmented Generation for Zero-shot Slot Filling},
+  booktitle = {{EMNLP} {(1)}},
+  pages     = {1939--1949},
+  publisher = {Association for Computational Linguistics},
+  year      = {2021}
 }
 ```
