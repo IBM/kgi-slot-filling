@@ -1,23 +1,21 @@
-from transformers import (PreTrainedTokenizer, BartTokenizerFast)
-from transformers import (RagSequenceForGeneration, RagTokenForGeneration, RagTokenizer)
 import torch
-from util.line_corpus import read_lines, write_open
+from util.line_corpus import read_lines, write_open, jsonl_lines
 import ujson as json
-from typing import List
 import numpy as np
 import functools
-from slot_filling.rag_hypers import RagHypers
+from generation.kgi_hypers import KgiHypers
 from util.reporting import Reporting
 import logging
-from slot_filling.corpus_client import CorpusClient
-from slot_filling.rag_util import prepare_seq2seq_batch, normalize_answer
-from slot_filling.dataset_stats import get_relations_by_fold, get_relation_from_inst
-
+from corpus.corpus_client import CorpusClient
+from generation.rag_util import prepare_seq2seq_batch, normalize_answer, tokenize_candidates, prefix_allowed_tokens_fn
+from corpus.dataset_stats import get_relations_by_fold, get_relation_from_inst
+from eval.convert_for_kilt_eval import convert_for_kilt_eval, get_answers
+from eval.kilt.kilt_eval import evaluate
 
 logger = logging.getLogger(__name__)
 
 
-class Options(RagHypers):
+class Options(KgiHypers):
     def __init__(self):
         super().__init__()
         self.output = ''
@@ -28,6 +26,9 @@ class Options(RagHypers):
         self.n_docs_for_provenance = 20  # we'll supply this many document ids for reporting provenance
         self.limit = -1
         self.retrieve_batch_size = 8
+        self.retrieve_random = False
+        self.include_positive_pids = ''
+        self.num_instances = 0  # no training instances
         # self.batch_size = 8
         self.__required_args__ = ['kilt_data', 'output', 'corpus_endpoint']
 
@@ -37,6 +38,15 @@ class Options(RagHypers):
 
 opts = Options().fill_from_args()
 torch.set_grad_enabled(False)
+
+inst_id2pos_pids = None
+if opts.include_positive_pids:
+    inst_id2pos_pids = dict()
+    for line in jsonl_lines(opts.include_positive_pids):
+        jobj = json.loads(line)
+        inst_id2pos_pids[jobj['id']] = jobj['positive_pids']
+        assert isinstance(jobj['positive_pids'], list)
+    logger.info(f'gathered positive pids for {len(inst_id2pos_pids)} instances')
 
 tokenizer, model = opts.get_tokenizer_and_model()
 
@@ -51,56 +61,20 @@ sum_rr = 0
 count = 0
 
 
-def tokenize_candidates(generator_tokenizer: PreTrainedTokenizer, batch_candidates: List[List[str]]):
-    batch_candidates_ids = []
-    for candidates in batch_candidates:
-        candidates_ids = []
-        for cand in candidates:
-            if not opts.no_leading_space:
-                cand = ' ' + cand
-            candidates_ids.append(np.array(generator_tokenizer.convert_tokens_to_ids(generator_tokenizer.tokenize(cand)), dtype=np.int32))
-        batch_candidates_ids.append(candidates_ids)
-    return batch_candidates_ids
-
-
-def prefix_allowed_tokens_fn(gtokenizer: BartTokenizerFast, candidates_text, batch_candidates: List[List[np.ndarray]],
-                             batch_id: int, input_ids: torch.Tensor) -> List[int]:
-    assert len(input_ids.shape) == 1
-    prefix = input_ids.cpu().detach().numpy()
-    candidates = batch_candidates[batch_id]
-    allowed = set()
-    # CONSIDER: always allow the special tokens, create cand_prefix as the non-special tokens
-    if len(prefix) == 0:
-        allowed.add(gtokenizer.eos_token_id)
-    if len(prefix) == 1:
-        allowed.add(gtokenizer.bos_token_id)
-    if len(prefix) > 2 and prefix[-1] == gtokenizer.eos_token_id:
-        allowed.add(gtokenizer.pad_token_id)
-    if len(prefix) > 1:
-        cand_prefix = prefix[2:]
-        for cand in candidates:
-            if len(cand) < len(cand_prefix):
-                continue
-            if all(cand[:len(cand_prefix)] == cand_prefix):
-                if len(cand) > len(cand_prefix):
-                    allowed.add(cand[len(cand_prefix)])
-                else:
-                    allowed.add(gtokenizer.eos_token_id)
-    if not allowed:
-        allowed.add(gtokenizer.eos_token_id)
-        allowed.add(gtokenizer.pad_token_id)
-    return list(allowed)
-
-
-def retrieve(queries):
-    input_dict = prepare_seq2seq_batch(tokenizer, queries, return_tensors="pt")
+def retrieve(queries, id_batch):
+    gold_pids = None
+    if inst_id2pos_pids is not None:
+        #gold_pids = [inst_id2pos_pids[inst_id] if inst_id in inst_id2pos_pid else [] for inst_id in id_batch]
+        gold_pids = [inst_id2pos_pids[inst_id] for inst_id in id_batch]
+    input_dict = prepare_seq2seq_batch(tokenizer, queries, return_tensors="pt", max_length=opts.max_context_length)
     input_ids = input_dict['input_ids'].to(model.device)
     attention_mask = input_dict['attention_mask'].to(model.device)
     with torch.no_grad():
         # retrieve support docs
         context_input_ids, context_attention_mask, doc_scores, docs = \
             rest_retriever.retrieve(input_ids, attention_mask,
-                                    n_docs=opts.n_docs, n_docs_for_provenance=opts.n_docs_for_provenance)
+                                    n_docs=opts.n_docs, n_docs_for_provenance=opts.n_docs_for_provenance,
+                                    get_random=opts.retrieve_random, gold_pids=gold_pids)
         if 'id' in docs[0]:
             retrieved_doc_ids = [dd['id'] for dd in docs]
         elif 'pid' in docs[0]:
@@ -128,7 +102,8 @@ def generate_one_instance(candidates, context_input_ids, context_attention_mask,
                              tokenizer.generator.bos_token_id,
                              tokenizer.generator.pad_token_id}
         if candidates:
-            batch_candidate_ids = tokenize_candidates(tokenizer.generator, [candidates])
+            batch_candidate_ids = tokenize_candidates(tokenizer.generator, [candidates],
+                                                      no_leading_space=opts.no_leading_space)
             prefix_allowed_tokens = functools.partial(prefix_allowed_tokens_fn,
                                                       tokenizer.generator,
                                                       [candidates],
@@ -218,7 +193,7 @@ def record_one_instance(output, inst_id, input_text, candidates, answers, pred_t
 
 
 def one_batch(id_batch, query_batch, candidate_batch, answer_batch, output):
-    context_input_ids, context_attention_mask, doc_scores, retrieved_doc_ids = retrieve(query_batch)
+    context_input_ids, context_attention_mask, doc_scores, retrieved_doc_ids = retrieve(query_batch, id_batch)
     # print(f'retrieved shapes: {context_input_ids.shape}, {context_attention_mask.shape}, {doc_scores.shape}, {retrieved_doc_ids}')
     for bi in range(len(query_batch)):
         context_ids_i = context_input_ids[bi]
@@ -226,15 +201,6 @@ def one_batch(id_batch, query_batch, candidate_batch, answer_batch, output):
                                                               context_attention_mask[bi], doc_scores[bi:bi+1])
         record_one_instance(output, id_batch[bi], query_batch[bi], candidate_batch[bi], answer_batch[bi],
                             answer_strings, answer_scores, retrieved_doc_ids[bi], context_ids_i)
-
-
-def get_answers(inst):
-    if 'answers' in inst:
-        return inst['answers']
-    elif 'output' in inst:
-        return [ai['answer'] for ai in inst['output']]
-    else:
-        return []
 
 
 if opts.world_size > 1:
@@ -281,5 +247,11 @@ with write_open(opts.output) as output:
 
 if generated_not_in_candidate_count > 0:
     print(f'Generated {generated_not_in_candidate_count} not in candidate list')
+
+if opts.limit <= 0 and not opts.fold:
+    assert opts.output.endswith('.jsonl')
+    kilt_format_output = opts.output[:-6] + '_kilt_format.jsonl'
+    # chain into convert_for_kilt_eval
+    convert_for_kilt_eval(opts.output, kilt_format_output, opts.kilt_data if has_answers else '')
 
 opts.cleanup_corpus_server()

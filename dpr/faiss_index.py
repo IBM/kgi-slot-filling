@@ -3,6 +3,9 @@ from dpr.simple_mmap_dataset import Corpus
 from util.args_help import fill_from_args
 import faiss
 from util.reporting import Reporting
+import os
+import time
+import math
 
 
 def l2_convert_indexed_vectors(vectors: np.ndarray, max_norm_sqrd: float):
@@ -26,14 +29,18 @@ def l2_convert_query_vectors(vectors: np.ndarray):
 class ANNIndex:
     def __init__(self, index_file):
         self.index = faiss.read_index(index_file)
+        self.is_l2 = type(self.index) == faiss.IndexHNSWSQ
 
     def search(self, query_vectors, k):
-        if type(self.index) == faiss.IndexHNSWSQ:
+        if self.is_l2:
             query_vectors = l2_convert_query_vectors(query_vectors)
-        return self.index.search(query_vectors, k)
+        scores, indexes = self.index.search(query_vectors, k)
+        if self.is_l2:
+            scores = -1 * scores  # make higher scores better always
+        return scores, indexes
 
     def dim(self):
-        if type(self.index) == faiss.IndexHNSWSQ:
+        if self.is_l2:
             return self.index.d - 1
         else:
             return self.index.d
@@ -47,11 +54,35 @@ class IndexOptions():
         self.ef_construction = 200
         self.index_batch_size = 100000
         self.scalar_quantizer = -1
+        self.product_quantizer_m = -1  # suggested values of 8, 16, 32 - maybe we need much higher though
+        self.product_quantizer_sv_bits = 8  # probably don't change this
+        self.is_l2 = False
+        self.num_vectors = -1
+        self.max_norm = -1
+
+    def _post_argparse(self):
+        self.is_l2 = self.scalar_quantizer > 0
 
 
 def build_index(corpus_dir, output_file, opts: IndexOptions):
     corpus = Corpus(corpus_dir)
+    if opts.is_l2:
+        print(f'Using L2 distance conversion')
 
+    if (opts.num_vectors <= 0 and opts.product_quantizer_m > 0) or (opts.max_norm <= 0 and opts.is_l2):
+        max_norm = 0
+        num_vectors = 0
+        start_time = time.time()
+        for psg in corpus:
+            vector = psg['vector']
+            max_norm = max(max_norm, np.linalg.norm(vector))
+            num_vectors += 1
+        print(f'found max norm = {max_norm} over {num_vectors} vectors in {(time.time()-start_time)/60} min.')
+        opts.max_norm = max_norm
+        opts.num_vectors = num_vectors
+    max_norm_sqrd = opts.max_norm * opts.max_norm
+
+    opts.is_trained = False
     if opts.scalar_quantizer > 0:
         if opts.scalar_quantizer == 16:
             sq = faiss.ScalarQuantizer.QT_fp16
@@ -65,36 +96,35 @@ def build_index(corpus_dir, output_file, opts: IndexOptions):
             raise ValueError(f'unknown --scalar_quantizer {opts.scalar_quantizer}')
         # see https://github.com/facebookresearch/faiss/blob/master/benchs/bench_hnsw.py
         index = faiss.IndexHNSWSQ(opts.d+1, sq, opts.m)
+        index.hnsw.efSearch = opts.ef_search
+        index.hnsw.efConstruction = opts.ef_construction
+    elif opts.product_quantizer_m > 0:
+        # product quant: https://github.com/matsui528/faiss_tips
+        # seems awful - maybe product_quantizer_m should be much higher?
+        nlist = int(math.sqrt(opts.num_vectors))
+        quantizer = faiss.IndexHNSWFlat(opts.d, opts.m, faiss.METRIC_INNER_PRODUCT)
+        index = faiss.IndexIVFPQ(quantizer, opts.d, nlist, opts.product_quantizer_m,
+                                 opts.product_quantizer_sv_bits, faiss.METRIC_INNER_PRODUCT)
+        index.nprobe = opts.ef_search  # matsui528 recommended 8
+        opts.index_batch_size = max(opts.index_batch_size, 50 * nlist)
     else:
         index = faiss.IndexHNSWFlat(opts.d, opts.m, faiss.METRIC_INNER_PRODUCT)
-
-    # defaults are 16 and 40
-    # print(f'ef search and construction: {index.hnsw.efSearch}; {index.hnsw.efConstruction}')
-    index.hnsw.efSearch = opts.ef_search
-    index.hnsw.efConstruction = opts.ef_construction
-
-    if opts.scalar_quantizer > 0:
-        max_norm = 0
-        for psg in corpus:
-            vector = psg['vector']
-            max_norm = max(max_norm, np.linalg.norm(vector))
-        print(f'found max norm = {max_norm}')
-        max_norm_sqrd = max_norm * max_norm
-    else:
-        max_norm_sqrd = None
+        # defaults are 16 and 40
+        index.hnsw.efSearch = opts.ef_search
+        index.hnsw.efConstruction = opts.ef_construction
+        opts.is_trained = True  # doesn't need training
 
     vectors = np.zeros((opts.index_batch_size, opts.d), dtype=np.float32)
     vector_ndx = 0
-    opts.is_trained = False
 
     def add_to_index(vectors):
-        if opts.scalar_quantizer > 0:
+        if opts.is_l2:
             to_index = l2_convert_indexed_vectors(vectors, max_norm_sqrd)
-            if not opts.is_trained:
-                index.train(to_index)
-                opts.is_trained = True
         else:
             to_index = vectors
+        if not opts.is_trained:
+            index.train(to_index)
+            opts.is_trained = True
         index.add(to_index)
 
     report = Reporting()
@@ -112,17 +142,25 @@ def build_index(corpus_dir, output_file, opts: IndexOptions):
 
     print(f'finished building index, writing index file to {output_file}')
     faiss.write_index(index, output_file)
+    print(f'took {report.elapsed_time_str()}')
 
 
 if __name__ == "__main__":
     class CmdOptions(IndexOptions):
         def __init__(self):
             super().__init__()
-            self.corpus_dir = ''
-            self.output_file = ''
-            self.__required_args__ = ['corpus_dir', 'output_file']
+            self.corpus = ''  # can be a directory with passages*.json.gz.records or a single such file
+            self.__required_args__ = ['corpus']
 
     opts = CmdOptions()
     fill_from_args(opts)
 
-    build_index(opts.corpus_dir, opts.output_file, opts)
+    if os.path.isdir(opts.corpus):
+        output_file = os.path.join(opts.corpus, 'index.faiss')
+    else:
+        base_dir, filename = os.path.split(opts.corpus)
+        assert filename.startswith('passages') and filename.endswith('.json.gz.records')
+        index_fname = f'index{filename[len("passages"):-len(".json.gz.records")]}.faiss'
+        output_file = os.path.join(base_dir, index_fname)
+
+    build_index(opts.corpus, output_file, opts)

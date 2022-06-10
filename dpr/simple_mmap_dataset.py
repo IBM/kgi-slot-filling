@@ -4,6 +4,7 @@ import numpy as np
 import os
 import mmap
 import codecs
+import threading
 
 
 def gzip_str(str):
@@ -18,14 +19,23 @@ def gunzip_str(bytes):
 
 class Corpus:
     def __init__(self, dir):
-        # for every file like 'passagesX.json.gz.records' there must be a file offsetsX.npy
+        # either pass a dir or a specific passagesX.json.gz.records file
         files = []
-        for filename in os.listdir(dir):
-            if filename.startswith('passages') and filename.endswith('.json.gz.records'):
-                offset_fname = f'offsets{filename[len("passages"):-len(".json.gz.records")]}.npy'
-                if not os.path.exists(os.path.join(dir, offset_fname)):
-                    raise ValueError(f'no offsets file for {filename}!')
-                files.append((filename, offset_fname))
+        base_dir, filename = os.path.split(dir)
+        if filename.startswith('passages') and filename.endswith('.json.gz.records'):
+            dir = base_dir
+            offset_fname = f'offsets{filename[len("passages"):-len(".json.gz.records")]}.npy'
+            if not os.path.exists(os.path.join(dir, offset_fname)):
+                raise ValueError(f'no offsets file for {filename}!')
+            files.append((filename, offset_fname))
+        else:
+            # for every file like 'passagesX.json.gz.records' there must be a file offsetsX.npy
+            for filename in os.listdir(dir):
+                if filename.startswith('passages') and filename.endswith('.json.gz.records'):
+                    offset_fname = f'offsets{filename[len("passages"):-len(".json.gz.records")]}.npy'
+                    if not os.path.exists(os.path.join(dir, offset_fname)):
+                        raise ValueError(f'no offsets file for {filename}!')
+                    files.append((filename, offset_fname))
         files.sort(key=lambda x: x[0])  # we sort the offsets files, that is our order
 
         # build offsets table
@@ -51,6 +61,8 @@ class Corpus:
             file = open(os.path.join(dir, file_pair[0]), "r+b")
             self.files.append(file)
             self.mms.append(mmap.mmap(file.fileno(), 0))
+        self.pid2ndx = dict()
+        self.lock = threading.Lock()
 
     def __len__(self):
         return len(self.offsets)
@@ -66,6 +78,17 @@ class Corpus:
     def get_raw(self, index):
         file_ndx, start_offset, end_offset = self.offsets[index]
         return self.mms[file_ndx][start_offset:end_offset]
+
+    def get_by_pid(self, pid):
+        with self.lock:
+            if len(self.pid2ndx) == 0:
+                for ndx in range(len(self.offsets)):
+                    obj = json.loads(gunzip_str(self.get_raw(ndx)))
+                    pidi = obj['pid']
+                    self.pid2ndx[pidi] = ndx
+            if pid not in self.pid2ndx:
+                return None
+            return self[self.pid2ndx[pid]]
 
     def close(self):
         for mm in self.mms:

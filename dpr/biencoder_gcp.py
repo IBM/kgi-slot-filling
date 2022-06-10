@@ -89,7 +89,7 @@ class BiEncoder(torch.nn.Module):
             positive_indices = self.gather(positive_indices + (self.hypers.global_rank * ctx_reps.shape[0]))
             qry_reps = self.gather(qry_reps)
             ctx_reps = self.gather(ctx_reps)
-        # TODO: for debugging, lets save qry_reps, ctx_reps and positive_indices on the first pass
+        # for debugging, lets save qry_reps, ctx_reps and positive_indices on the first pass
         self.save_for_debug(qry_reps, ctx_reps, positive_indices)
         dot_products = torch.matmul(qry_reps, ctx_reps.transpose(0, 1))  # (q * world_size) x (c * world_size)
         probs = F.log_softmax(dot_products, dim=1)

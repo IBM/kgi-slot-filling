@@ -5,6 +5,11 @@ import gzip
 import bz2
 import math
 import random
+import sys
+import contextlib
+import numpy as np
+import base64
+import codecs
 
 logger = logging.getLogger(__name__)
 
@@ -12,6 +17,7 @@ logger = logging.getLogger(__name__)
 def block_shuffle(iter, *, block_size=20000, rand=random):
     """
     shuffle the possibly endless iterator by blocks
+    Good shuffling over multiple files: block_shuffle(read_lines(files, shuffled_files=rand), rand=rand, block_size=100000)
     :param iter: the iterator we will yield shuffled items from
     :param block_size: size of memory to use for block shuffling
     :param rand: rand.shuffle will be used on the list block
@@ -122,6 +128,93 @@ def write_open(output_file, *, mkdir=True, binary=False):
             return open(output_file, 'w', encoding='utf-8')
 
 
+class ShuffledWriter:
+    def __init__(self, output_dir, *, extension='.jsonl.gz', num_files=16, rand: random.Random=None):
+        self.files = [write_open(os.path.join(output_dir, f'{i}{extension}')) for i in range(num_files)]
+        self.rand = rand if rand is not None else random.Random()
+        self.current_file = 0
+        self.buffer = []
+        self.buffer_limit = 1000000
+
+    def write(self, line):
+        self.buffer.append(line)
+        if len(self.buffer) > self.buffer_limit:
+            self.rand.shuffle(self.buffer)
+            for _ in range(len(self.buffer)//2):
+                self._write(self.buffer.pop(-1))
+
+    def _write(self, line):
+        self.files[self.current_file].write(line)
+        self.current_file = (self.current_file + 1) % len(self.files)
+
+    def close(self):
+        self.rand.shuffle(self.buffer)
+        for l in self.buffer:
+            self._write(l)
+        self.buffer = []
+        for f in self.files:
+            f.close()
+
+
+@contextlib.contextmanager
+def shuffled_writer(output_dir, *, extension='.jsonl.gz', num_files=16, rand: random.Random=None):
+    sw = ShuffledWriter(output_dir, extension=extension, num_files=num_files, rand=rand)
+    try:
+        yield sw
+    finally:
+        sw.close()
+
+
+@contextlib.contextmanager
+def stdout_or_file_open(filename=None):
+    """
+    Opens the file (or stdout if filename is False or '-') for writing.
+    Used in 'with' statement.
+    :param filename:
+    :return:
+    """
+    if filename and filename != '-':
+        fh = write_open(filename)
+    else:
+        fh = sys.stdout
+
+    try:
+        yield fh
+    finally:
+        if fh is not sys.stdout:
+            fh.close()
+
+
+def np2str(nda, *, dtype=np.float16):
+    """
+    Convert numpy ndarray to compact string representation
+    :param nda: numpy array
+    :param dtype: numpy datatype to save the array as
+    :return: base64 encoded string of numpy binary
+    """
+    return base64.b64encode(nda.astype(dtype)).decode('ascii')
+
+
+def str2np(s: str, *, dtype=np.float16):
+    """
+    Convert compact string representation of numpy ndarry to numpy vector
+    :param s: base64 encoded string of numpy binary
+    :param dtype: numpy datatype of the saved array
+    :return: 1-D array (shape is not preserved)
+    """
+    return np.frombuffer(base64.decodebytes(s.encode('ascii')), dtype=dtype)
+
+
+def gzip_str(str):
+    return codecs.encode(str.encode('utf-8'), 'zlib')
+    # return gzip.compress(str.encode('utf-8'))
+
+
+def gunzip_str(bytes):
+    return codecs.decode(bytes, 'zlib').decode('utf-8')
+    # return gzip.decompress(bytes).decode('utf-8')
+
+
 def read_lines(input_files, limit=0, report_every=100000, *, errors=None, shuffled_files=None):
     """
     This takes a list (or single) input files and iterates over the lines in them
@@ -144,7 +237,7 @@ def read_lines(input_files, limit=0, report_every=100000, *, errors=None, shuffl
                 if next_line:
                     yield next_line
                     count += 1
-                    if count % report_every == 0:
+                    if report_every > 0 and count % report_every == 0:
                         logger.info(f'On line {count}')
                 else:
                     open_files[fndx].close()
@@ -155,7 +248,7 @@ def read_lines(input_files, limit=0, report_every=100000, *, errors=None, shuffl
                 for line in reader:
                     yield line
                     count += 1
-                    if count % report_every == 0:
+                    if report_every > 0 and count % report_every == 0:
                         logger.info(f'On line {count} in {input_file}')
                     if 0 < limit <= count:
                         return

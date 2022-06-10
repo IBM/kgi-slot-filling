@@ -25,6 +25,7 @@ class Options(IndexOptions):
         self.dpr_ctx_encoder_model_name = 'facebook/dpr-ctx_encoder-multiset-base'
         self.dpr_ctx_encoder_path = ''
         self.embed = '1of1'
+        self.sharded_index = False
         self.corpus = ''
         self.output_dir = ''  # the output_dir will have the passages dataset and the hnsw_index.faiss
         self.batch_size = 16
@@ -75,7 +76,10 @@ cur_offset = 0
 passages = write_open(os.path.join(opts.output_dir, f'passages_{embed_num}_of_{embed_count}.json.gz.records'), binary=True)
 
 report = Reporting()
-data_files = jsonl_files(opts.corpus)[embed_num-1::embed_count]
+all_data_files = jsonl_files(opts.corpus)
+if len(all_data_files) < embed_count:
+    raise ValueError(f'too few files ({len(all_data_files)}) to split into {embed_count} parts')
+data_files = all_data_files[embed_num-1::embed_count]
 doc_batch = []
 for line in read_lines(data_files):
     if report.is_time():
@@ -96,5 +100,10 @@ passages.close()
 with write_open(os.path.join(opts.output_dir, f'offsets_{embed_num}_of_{embed_count}.npy'), binary=True) as f:
     np.save(f, np.array(offsets, dtype=np.int64), allow_pickle=False)
 
-if embed_count == 1:
+print(f'Wrote passages_{embed_num}_of_{embed_count}.json.gz.records in {report.elapsed_time_str()}')
+
+if opts.sharded_index:
+    build_index(os.path.join(opts.output_dir, f'passages_{embed_num}_of_{embed_count}.json.gz.records'),
+                os.path.join(opts.output_dir, f'index_{embed_num}_of_{embed_count}.faiss'), opts)
+elif embed_count == 1:
     build_index(opts.output_dir, os.path.join(opts.output_dir, 'index.faiss'), opts)

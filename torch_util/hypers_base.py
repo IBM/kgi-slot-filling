@@ -2,7 +2,7 @@ import logging
 import torch
 import os
 import socket
-from util.args_help import fill_from_args, fill_from_dict
+from util.args_help import fill_from_args, fill_from_dict, name_value_list
 import ujson as json
 import time
 import random
@@ -10,12 +10,17 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
+_dist_initialized_local_global_rank_world_size = None
+
 
 def dist_initialize():
     """
     initializes torch distributed
     :return: local_rank, global_rank, world_size
     """
+    global _dist_initialized_local_global_rank_world_size
+    if _dist_initialized_local_global_rank_world_size is not None:
+        return _dist_initialized_local_global_rank_world_size
     if "RANK" not in os.environ:
         local_rank = -1
         global_rank = 0
@@ -45,6 +50,7 @@ def dist_initialize():
     logger.info(f"world_rank {global_rank} cuda_is_available {torch.cuda.is_available()} "
                 f"cuda_device_cnt {torch.cuda.device_count()} on {socket.gethostname()},"
                 f" CUDA_VISIBLE_DEVICES = {cuda_devices}")
+    _dist_initialized_local_global_rank_world_size = local_rank, global_rank, world_size
     return local_rank, global_rank, world_size
 
 
@@ -68,6 +74,7 @@ class HypersBase:
         self.adam_epsilon = 1e-8
         self.max_grad_norm = 1.0
         self.warmup_instances = 0  # previous default was 0.1 of total
+        self.warmup_fraction = 0.0  # only applies if warmup_instances <= 0
         self.num_train_epochs = 3
         self.no_cuda = False
         self.n_gpu = 1
@@ -77,12 +84,11 @@ class HypersBase:
         self.full_train_batch_size = 8  # previous default was 32
         self.per_gpu_eval_batch_size = 8
         self.output_dir = ''  # where to save model
-        self.save_total_limit = 1  # limit to number of checkpoints saved in the output dir
-        self.save_steps = 0  # do we save checkpoints every N steps? (TODO: put in terms of hours instead)
-        self.use_tensorboard = False
         self.log_on_all_nodes = False
         self.server_ip = ''
         self.server_port = ''
+        self._quiet_post_init = False
+        self.__passed_args__ = []  # will be set by fill_from_args
         self.__required_args__ = ['model_type', 'model_name_or_path']
 
     def set_seed(self, seed=None):
@@ -118,11 +124,12 @@ class HypersBase:
             self.device = torch.device("cuda", self.local_rank)
             self.n_gpu = 1
 
-        if self.n_gpu > 0:
+        if 'per_gpu_train_batch_size' not in self.__passed_args__ and self.gradient_accumulation_steps > 0:
             self.per_gpu_train_batch_size = self.full_train_batch_size // \
-                                            (self.n_gpu * self.world_size * self.gradient_accumulation_steps)
+                                            ((self.n_gpu if self.n_gpu > 0 else 1) * self.world_size * self.gradient_accumulation_steps)
         else:
-            self.per_gpu_train_batch_size = self.full_train_batch_size // self.gradient_accumulation_steps
+            self.gradient_accumulation_steps = self.full_train_batch_size // \
+                                            ((self.n_gpu if self.n_gpu > 0 else 1) * self.world_size * self.per_gpu_train_batch_size)
 
         self.stop_time = None
         if 'TIME_LIMIT_MINS' in os.environ:
@@ -141,16 +148,17 @@ class HypersBase:
             ptvsd.enable_attach(address=(self.server_ip, self.server_port), redirect_output=True)
             ptvsd.wait_for_attach()
 
-        logger.warning(
-            "On %s, Process rank: %s, device: %s, n_gpu: %s, distributed training: %s, 16-bits training: %s",
-            socket.gethostname(),
-            self.local_rank,
-            self.device,
-            self.n_gpu,
-            bool(self.local_rank != -1),
-            self.fp16,
-        )
-        logger.info(f'hypers:\n{self}')
+        if not self._quiet_post_init:
+            logger.warning(
+                "On %s, Process rank: %s, device: %s, n_gpu: %s, distributed training: %s, 16-bits training: %s",
+                socket.gethostname(),
+                self.local_rank,
+                self.device,
+                self.n_gpu,
+                bool(self.local_rank != -1),
+                self.fp16,
+            )
+            logger.info(f'hypers:\n{self}')
 
     def _setup_logging(self):
         # force our logging style
@@ -185,6 +193,20 @@ class HypersBase:
             except:
                 pass
 
+    def kofn(self, kofn: str):
+        """
+        ''     -> 0, 1
+        '1of2' -> 0, 2
+        '2of2' -> 1, 2
+        :param kofn:
+        :return:
+        """
+        if not kofn:
+            return 0, 1
+        k, n = [int(i) for i in kofn.lower().split('of')]
+        assert 1 <= k <= n
+        return k-1, n
+
     def to_dict(self):
         d = self.__dict__.copy()
         del d['device']
@@ -196,7 +218,8 @@ class HypersBase:
         return self
 
     def __str__(self):
-        return json.dumps(self.to_dict(), indent=2)
+        nvl = {n: (v if type(v) in [int, float, str, bool] else str(v)) for n, v in name_value_list(self)}
+        return json.dumps(nvl, indent=2)
 
     def fill_from_args(self):
         fill_from_args(self)

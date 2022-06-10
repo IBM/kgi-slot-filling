@@ -64,7 +64,7 @@ class DistBatchesBase:
         if self.hypers.world_size == 1:
             batch_insts = self.insts[index::self.num_batches]
         else:
-            batch_insts = self.insts[index * self.batch_size:(index + 1) * self.batch_size]
+            batch_insts = self.insts[index * self.batch_size: (index + 1) * self.batch_size]
         batch = self.make_batch(index, batch_insts)
         if index == 0 and self.displayer is not None:
             self.displayer(batch)

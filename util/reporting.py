@@ -6,6 +6,14 @@ from typing import Iterable
 logger = logging.getLogger(__name__)
 
 
+def time_str(seconds: float) -> str:
+    if seconds > 60 * 60:
+        return f'{seconds/(60.0*60.0):.1f} hours'
+    if seconds > 60:
+        return f'{seconds/60.0:.1f} minutes'
+    return f'{int(seconds)} seconds'
+
+
 class Reporting:
     def __init__(self, *, recency_weight=0.001, report_interval_secs=300, check_every=1,
                  gather_samples:Iterable=(), num_samples=10000):
@@ -122,19 +130,22 @@ class Reporting:
                 return self.counts[ndx]
         return None
 
-    def elapsed_seconds(self):
+    def elapsed_seconds(self) -> float:
         return time.time()-self.start_time
+
+    def elapsed_time_str(self) -> str:
+        return time_str(self.elapsed_seconds())
 
     def progress_str(self, instance_name='instance'):
         return f'On {instance_name} {self.check_count}, ' \
                f'{self.check_count/self.elapsed_seconds()} {instance_name}s per second.'
 
-    def display(self):
+    def display(self, *, prefix=''):
         # display the moving averages
         logger.info('==========================================')
         if self.names is not None:
             for n, v in zip(self.names, self.averages):
-                logger.info(f'{n} = {v}')
+                logger.info(f'{prefix}{n} = {v}')
 
     def display_warn(self, *, prefix=''):
         # display the moving averages

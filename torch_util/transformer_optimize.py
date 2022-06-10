@@ -15,6 +15,25 @@ from transformers import (
 logger = logging.getLogger(__name__)
 
 
+class LossHistory:
+    def __init__(self, one_epoch_batch_count, *, loss_points_per_epoch=10, recency_weight=0.001):
+        self.avg_loss = 0
+        self.batch_count = 0
+        self.recency_weight = recency_weight
+        self.loss_history = []
+        self.record_loss_every = max(1, one_epoch_batch_count // loss_points_per_epoch)
+
+    def note_loss(self, loss_val):
+        self.batch_count += 1
+        rweight = max(self.recency_weight, 1.0 / self.batch_count)
+        self.avg_loss = (1.0 - rweight) * self.avg_loss + rweight * loss_val
+        if self.batch_count % self.record_loss_every == 0:
+            self.loss_history.append(self.avg_loss)
+            logger.info(f'loss point {self.batch_count//self.record_loss_every} = {self.avg_loss}')
+            return True
+        return False
+
+
 class TransformerOptimize:
     """
     Collects standard steps to train transformer
@@ -83,7 +102,8 @@ class TransformerOptimize:
                 self.model, device_ids=[args.local_rank], output_device=args.local_rank, find_unused_parameters=True,
             )
         # set_seed(args)
-
+        assert args.per_gpu_train_batch_size * (args.n_gpu if args.n_gpu > 0 else 1) * \
+               args.world_size * args.gradient_accumulation_steps == args.full_train_batch_size
         logger.info("***** Running training *****")
         logger.info("  Instantaneous batch size per GPU = %d", args.per_gpu_train_batch_size)
         logger.info("  Total train batch size (w. parallel, distributed & accumulation) = %d", args.full_train_batch_size)
@@ -128,7 +148,7 @@ class TransformerOptimize:
             self.reporting.display()
             inst_count = self.hypers.world_size * self.hypers.n_gpu * self.hypers.per_gpu_train_batch_size * self.reporting.check_count
             learning_rate_scalar = self.scheduler.get_lr()[0]
-            logger.info(f'{inst_count/self.reporting.elapsed_seconds()} instances per second ({learning_rate_scalar} learn rate)')
+            logger.info(f'{inst_count/self.reporting.elapsed_seconds()} instances per second; {inst_count} total ({learning_rate_scalar} learn rate)')
         return True
 
     def step_loss(self, loss, **moving_averages):

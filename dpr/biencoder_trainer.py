@@ -5,6 +5,7 @@ from dpr.dataloader_biencoder import BiEncoderLoader
 from transformers import (DPRContextEncoderTokenizerFast, DPRQuestionEncoderTokenizerFast)
 import logging
 import time
+from util.line_corpus import jsonl_lines
 
 logger = logging.getLogger(__name__)
 
@@ -13,8 +14,15 @@ class BiEncoderTrainArgs(BiEncoderHypers):
     def __init__(self):
         super().__init__()
         self.train_dir = ''
+        self.positive_pids = ''
         self.num_instances = -1
-        self.__required_args__ = ['train_dir', 'output_dir', 'num_instances']
+        self.__required_args__ = ['train_dir', 'output_dir', 'positive_pids']
+
+    def _post_init(self):
+        super()._post_init()
+        if self.num_instances <= 0:
+            self.num_instances = sum(1 for _ in jsonl_lines(self.train_dir))
+            logger.info(f'Counted num_instances = {self.num_instances}')
 
 
 args = BiEncoderTrainArgs().fill_from_args()
@@ -31,8 +39,10 @@ model = BiEncoder(args)
 model.to(args.device)
 model.train()
 optimizer = TransformerOptimize(args, args.num_train_epochs * args.num_instances, model)
-loader = BiEncoderLoader(args, args.per_gpu_train_batch_size, qry_tokenizer, ctx_tokenizer, args.train_dir)
+loader = BiEncoderLoader(args, args.per_gpu_train_batch_size, qry_tokenizer, ctx_tokenizer,
+                         args.train_dir, args.positive_pids, files_per_dataloader=-1)
 last_save_time = time.time()
+args.set_seed()
 
 while True:
     batches = loader.get_dataloader()
@@ -54,3 +64,4 @@ while True:
 model_to_save = (optimizer.model.module if hasattr(optimizer.model, "module") else optimizer.model)
 logger.info(f'saving to {args.output_dir}')
 model_to_save.save(args.output_dir)
+logger.info(f'Took {optimizer.reporting.elapsed_time_str()}')

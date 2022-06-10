@@ -1,42 +1,39 @@
-# KGI (Knowledge Graph Induction) for slot filling
-This is the code for our KILT leaderboard submission to the T-REx and zsRE tasks.  It includes code for training a DPR model then continuing training with RAG.
+# Re2G (Retrieve, Rerank, Generate)
+This is the code for our KILT leaderboard submission to the T-REx, Wizard of Wikipedia, FEVER, NQ, and TriviaQA tasks.  
+It includes code for training a DPR model, a reranker, then continuing training with a RAG-like model incorporating both retrieval and reranking..
 
 
-KGI model is described in: [Robust Retrieval Augmented Generation for Zero-shot Slot Filling](https://aclanthology.org/2021.emnlp-main.148/) (EMNLP 2021).  
+It is an extension of our KGI model described in: [Zero-shot Slot Filling with DPR and RAG](https://arxiv.org/abs/2104.08610)  
 
-# Available from Hugging Face as:
-| Dataset | Type | Model Name | Tokenizer Name |
-| ------- | ----- | ---- | --------- |
-| T-REx   |  DPR (ctx)  | michaelrglass/dpr-ctx_encoder-multiset-base-kgi0-trex | facebook/dpr-ctx_encoder-multiset-base
-| T-REx   |  RAG  | michaelrglass/rag-token-nq-kgi0-trex | rag-token-nq
-| zsRE    |  DPR (ctx)  | michaelrglass/dpr-ctx_encoder-multiset-base-kgi0-zsre | facebook/dpr-ctx_encoder-multiset-base
-| zsRE    |  RAG  | michaelrglass/rag-token-nq-kgi0-zsre | rag-token-nq
 
 # Process to reproduce
-Download the [KILT data and knowledge source](https://github.com/facebookresearch/KILT)
-* T-REx: [train](http://dl.fbaipublicfiles.com/KILT/trex-train-kilt.jsonl), [dev](http://dl.fbaipublicfiles.com/KILT/trex-dev-kilt.jsonl)
-* zsRE: [train](http://dl.fbaipublicfiles.com/KILT/structured_zeroshot-train-kilt.jsonl), [dev](http://dl.fbaipublicfiles.com/KILT/structured_zeroshot-dev-kilt.jsonl)
+
+
+## Download the [KILT data and knowledge source](https://github.com/facebookresearch/KILT)
 * [KILT Knowledge Source](http://dl.fbaipublicfiles.com/KILT/kilt_knowledgesource.json)
 
+This produces the files ${dataset}-train-kilt.jsonl, ${dataset}-dev-kilt.jsonl, and kilt_knowledgesource.json
+
+
+
+## Corpus pre-processing
 Segment the KILT Knowledge Source into passages:
 ```bash
-python slot_filling/kilt_passage_corpus.py \
+python corpus/kilt_passage_corpus.py \
 --kilt_corpus kilt_knowledgesource.json --output_dir kilt_passages --passage_ids passage_ids.txt
 ```
+This produces the directory kilt_passages and the file passage_ids.txt
 
-Generate the first phase of the DPR training data
+Generate the first phase of the DPR training data. The directory ${dataset} should contain the KILT training and dev files (-train-kilt.jsonl, -dev-kilt.jsonl)
 ```bash
-python dpr/dpr_kilt_slot_filling_dataset.py \
---kilt_data structured_zeroshot-train-kilt.jsonl \
+python dpr/kilt2positive_pids.py \
+--kilt_data_dir ${dataset}  \
 --passage_ids passage_ids.txt \
---output_file zsRE_train_positive_pids.jsonl
-
-python dpr/dpr_kilt_slot_filling_dataset.py \
---kilt_data trex-train-kilt.jsonl \
---passage_ids passage_ids.txt \
---output_file trex_train_positive_pids.jsonl
+--kilt_passages kilt_passages
 ```
+This produces the files ${dataset}/train_positive_pids.jsonl and ${dataset}/dev_positive_pids.jsonl
 
+## BM25 index
 Download and build [Anserini](https://github.com/castorini/anserini). 
 You will need to have [Maven](https://maven.apache.org/index.html) and a [Java JDK](https://jdk.java.net/).
 ```bash
@@ -47,8 +44,9 @@ git checkout 3a60106fdc83473d147218d78ae7dca7c3b6d47c
 export JAVA_HOME=your JDK directory
 mvn clean package appassembler:assemble
 ```
+This produces the programs Anserini/target/appassembler/bin/IndexCollection and Anserini/target/anserini-0.4.1-SNAPSHOT-fatjar.jar
 
-put the title/text into the training instance with hard negatives from BM25
+Index the passages for BM25 search
 ```bash
 python dpr/anserini_prep.py \
 --input kilt_passages \
@@ -57,46 +55,65 @@ python dpr/anserini_prep.py \
 sh Anserini/target/appassembler/bin/IndexCollection -collection JsonCollection \
 -generator LuceneDocumentGenerator -threads 40 -input anserini_passages \
 -index anserini_passage_index -storePositions -storeDocvectors -storeRawDocs
-
-export CLASSPATH=jar/dprBM25.jar:Anserini/target/anserini-0.4.1-SNAPSHOT-fatjar.jar
-java com.ibm.research.ai.pretraining.retrieval.DPRTrainingData \
--passageIndex anserini_passage_index \
--positivePidData ${dataset}_train_positive_pids.jsonl \
--trainingData ${dataset}_dpr_training_data.jsonl
 ```
+This produces the directory anserini_passage_index
 
-Train DPR
+Generate BM25 hard negatives
+```bash
+python dpr/dpr_bm25_negatives.py \
+  --positive_pids ${dataset}/train_positive_pids.jsonl  \
+  --jar Anserini/target/anserini-0.4.1-SNAPSHOT-fatjar.jar \
+  --anserini_index anserini_passage_index \
+  --output_dir ${dataset}_dpr_training_data
+```
+This produces the directory ${dataset}_dpr_training_data
+
+#### Optional: Establish BM25 baseline
+```bash
+python  dpr/bm25_apply.py \
+  --kilt_data ${dataset}-dev-kilt.jsonl \
+  --output predictions/bm25/dev.jsonl \
+  --include_passages --n_docs 20 \
+  --jar Anserini/target/anserini-0.4.1-SNAPSHOT-fatjar.jar \
+  --anserini_index anserini_passage_index
+```
+This produces predictions/bm25/dev.jsonl
+
+
+#### Train DPR
 ```bash
 # multi-gpu is not well supported
 export CUDA_VISIBLE_DEVICES=0
 
 python dpr/biencoder_trainer.py \
---train_dir zsRE_dpr_training_data.jsonl \
---output_dir models/DPR/zsRE \
---num_train_epochs 2 \
---num_instances 131610 \
---encoder_gpu_train_limit 32 \
---full_train_batch_size 128 \
---max_grad_norm 1.0 --learning_rate 5e-5
-
-python dpr/biencoder_trainer.py \
---train_dir trex_dpr_training_data.jsonl \
---output_dir models/DPR/trex \
---num_train_epochs 2 \
---num_instances 2207953 \
+--train_dir ${dataset}_dpr_training_data \
+--output_dir models/DPR/${dataset} \
+--num_train_epochs 2 --sample_negative_from_top_k 5 \
 --encoder_gpu_train_limit 32 \
 --full_train_batch_size 128 \
 --max_grad_norm 1.0 --learning_rate 5e-5
 ```
+This produces the model models/DPR/${dataset} (containing models/DPR/${dataset}/qry_encoder and models/DPR/${dataset}/ctx_encoder)
 
-Put the trained DPR query encoder into the NQ RAG model (dataset = trex, zsRE)
+#### Optional: check DPR is training well by using it to rerank BM25 results
+```bash
+python dpr/dpr_quick_apply.py \
+  --dpr_path models/DPR/${dataset} \
+  --output predictions/dpr/dev_quick_bm25_dpr.jsonl \
+  --kilt_data ${dataset}-dev-kilt.jsonl  \
+  --initial_retrieval predictions/bm25/dev.jsonl
+```
+
+#### Put the trained DPR query encoder into the pre-trained RAG model
 ```bash
 python dpr/prepare_rag_model.py \
 --save_dir models/RAG/${dataset}_dpr_rag_init  \
 --qry_encoder_path models/DPR/${dataset}/qry_encoder
 ```
+This produces the model models/RAG/${dataset}_dpr_rag_init
 
-Encode the passages (dataset = trex, zsRE)
+#### Create the DPR indexed corpus
+Encode the passages
 ```bash
 python dpr/index_simple_corpus.py \
 --embed 1of2 \
@@ -111,81 +128,195 @@ python dpr/index_simple_corpus.py \
 --output_dir kilt_passages_${dataset}
 ```
 
-Index the passage vectors (dataset = trex, zsRE)
+Index the passage vectors
 ```bash
 python dpr/faiss_index.py \
---corpus_dir kilt_passages_${dataset} \
---scalar_quantizer 8 \
---output_file kilt_passages_${dataset}/index.faiss
+--corpus kilt_passages_${dataset}/passages_1_of_2.json.gz.records \
+--scalar_quantizer 8
+
+python dpr/faiss_index.py \
+--corpus kilt_passages_${dataset}/passages_2_of_2.json.gz.records \
+--scalar_quantizer 8
+```
+This produces the directory kilt_passages_${dataset}
+
+#### Optional: Apply the trained DPR
+```bash
+python dpr/dpr_apply.py \
+--kilt_data ${dev_file} \
+--qry_encoder_path models/DPR/${dataset}/qry_encoder \
+--corpus_endpoint kilt_passages_${dataset} \
+--output predictions/${dataset}_dev_dpr.jsonl
 ```
 
+
+
+## Optional: Further train DPR with negatives from index
+Once you have built the kilt_passages_trex (or other dataset) including the faiss index, you can use
+the initial index to gather negatives for further DPR training:
+```bash
+python dpr/negatives_from_index.py \
+--corpus_endpoint kilt_passages_${dataset} \
+--qry_encoder_path models/DPR/${dataset}/qry_encoder \
+--dpr_training_data ${dataset}_dpr_training_data.jsonl \
+--kilt_training_data ${dataset}-train-kilt.jsonl \
+--output_file ${dataset}_dpr_training_data_nfi.jsonl
+```
+
+Then continue training your DPR model. The argument for resume_from should be the model you trained earlier.
+```bash
+python dpr/biencoder_trainer.py \
+--resume_from models/DPR/${dataset}
+--train_dir ${dataset}_dpr_training_data_nfi.jsonl \
+--output_dir models/DPR/${dataset}_nfi \
+--num_train_epochs 2 \
+--encoder_gpu_train_limit 32 \
+--full_train_batch_size 128 \
+--max_grad_norm 1.0 --learning_rate 5e-5
+```
+
+Use the new DPR model to index_simple_corpus and faiss_index as above. 
+You should also use this model to initialize your RAG model with prepare_rag_model.
+
+## RAG
 Train RAG
 ```bash
 python dataloader/file_splitter.py \
---input trex-train-kilt.jsonl \
---outdirs trex_training \
---file_counts 64
+--input ${dataset}-train-kilt.jsonl \
+--outdirs ${dataset}_training \
+--file_counts 8
 
-python slot_filling/rag_client_server_train.py \
-  --kilt_data trex_training \
-  --output models/RAG/trex_dpr_rag \
-  --corpus_endpoint kilt_passages_trex \
-  --model_name facebook/rag-token-nq \
-  --model_path models/RAG/trex_dpr_rag_init \
-  --num_instances 500000 --warmup_instances 10000  --num_train_epochs 1 \
-  --learning_rate 3e-5 --full_train_batch_size 128 --gradient_accumulation_steps 64
-
-
-python slot_filling/rag_client_server_train.py \
-  --kilt_data structured_zeroshot-train-kilt.jsonl \
-  --output models/RAG/zsRE_dpr_rag \
-  --corpus_endpoint kilt_passages_zsRE \
-  --model_name facebook/rag-token-nq \
-  --model_path models/RAG/zsRE_dpr_rag_init \
-  --num_instances 147909  --warmup_instances 10000 --num_train_epochs 1 \
-  --learning_rate 3e-5 --full_train_batch_size 128 --gradient_accumulation_steps 64
-
-```
-
-Apply RAG (dev_file = trex-dev-kilt.jsonl, structured_zeroshot-dev-kilt.jsonl)
-```bash
-python slot_filling/rag_client_server_apply.py \
-  --kilt_data ${dev_file} \
+python generation/kgi_train.py \
+  --kilt_data ${dataset}_training \
+  --output models/RAG/${dataset}_dpr_rag \
   --corpus_endpoint kilt_passages_${dataset} \
-  --output predictions/${dataset}_dev.jsonl \
+  --model_name facebook/rag-token-nq \
+  --model_path models/RAG/${dataset}_dpr_rag_init \
+  --warmup_fraction 0.05  --num_train_epochs 2 \
+  --learning_rate 3e-5 --full_train_batch_size 128 --gradient_accumulation_steps 64
+```
+This produces the model models/RAG/${dataset}_dpr_rag
+
+Apply RAG
+```bash
+python generation/kgi_apply.py \
+  --kilt_data ${dataset}-dev-kilt.jsonl \
+  --corpus_endpoint kilt_passages_${dataset} \
+  --output_dir predictions/KGI/${dataset}_dev \
   --model_name facebook/rag-token-nq \
   --model_path models/RAG/${dataset}_dpr_rag
-
-python eval/convert_for_kilt_eval.py \
---apply_file predictions/${dataset}_dev.jsonl \
---eval_file predictions/${dataset}_dev_kilt_format.jsonl
-
 ```
 
-Run official evaluation script
+## Reranker
+
+### Create initial retrieval files
+RAG updated DPR results on train and dev
 ```bash
-# install KILT evaluation scripts
-git clone https://github.com/facebookresearch/KILT.git
-cd KILT
-conda create -n kilt37 -y python=3.7 && conda activate kilt37
-pip install -r requirements.txt
-export PYTHONPATH=`pwd`
+python dpr/dpr_apply.py \
+  --kilt_data ${dataset}-dev-kilt.jsonl  \
+  --output predictions/dprKGI0/dev.jsonl  --include_passages \
+  --corpus_endpoint kilt_passages_${dataset} --n_docs_for_provenance 20 \
+  --rag_model_path models/RAG/${dataset}_dpr_rag
 
-# run evaluation
-python kilt/eval_downstream.py predictions/${dataset}_dev_kilt_format.jsonl ${dev_file}
+python dpr/dpr_apply.py \
+  --kilt_data ${dataset}-train-kilt.jsonl  \
+  --output predictions/dprKGI0/train.jsonl  --include_passages \
+  --corpus_endpoint kilt_passages_${dataset} --n_docs_for_provenance 20 \
+  --rag_model_path models/RAG/${dataset}_dpr_rag
 ```
 
-## Citation
-```bibtex
-@inproceedings{DBLP:conf/emnlp/GlassRCG21,
-  author    = {Michael R. Glass and
-               Gaetano Rossiello and
-               Md. Faisal Mahbub Chowdhury and
-               Alfio Gliozzo},
-  title     = {Robust Retrieval Augmented Generation for Zero-shot Slot Filling},
-  booktitle = {{EMNLP} {(1)}},
-  pages     = {1939--1949},
-  publisher = {Association for Computational Linguistics},
-  year      = {2021}
-}
+BM25 results on train and dev
+```bash
+python  dpr/bm25_apply.py \
+  --kilt_data ${dataset}-dev-kilt.jsonl \
+  --output predictions/bm25/dev.jsonl \
+  --include_passages --n_docs 20 \
+  --jar Anserini/target/anserini-0.4.1-SNAPSHOT-fatjar.jar \
+  --anserini_index anserini_passage_index
+
+python dpr/bm25_apply.py \
+  --kilt_data ${dataset}-train-kilt.jsonl \
+  --output predictions/bm25/train.jsonl \
+  --include_passages --n_docs 20 \
+  --jar Anserini/target/anserini-0.4.1-SNAPSHOT-fatjar.jar \
+  --anserini_index anserini_passage_index
 ```
+
+Merge DPR and BM25 results
+```bash
+python  dpr/merge_initial_retrieval_files.py \
+ --kilt_data ${dataset}-dev-kilt.jsonl \
+ --initial_retrievals predictions/bm25/dev.jsonl,predictions/dprKGI0/dev.jsonl \
+ --output predictions/dpr_bm25/dev.jsonl 
+
+python  dpr/merge_initial_retrieval_files.py \
+ --kilt_data ${dataset}-train-kilt.jsonl \
+ --initial_retrievals predictions/bm25/train.jsonl,predictions/dprKGI0/train.jsonl \
+ --output predictions/dpr_bm25/train.jsonl 
+```
+
+This produces the files predictions/dpr_bm25/train.jsonl and predictions/dpr_bm25/dev.jsonl
+
+### Train reranker stage 1 (isolated training)
+```bash
+python reranker/reranker_train.py \
+  --model_type bert --model_name_or_path nboost/pt-bert-base-uncased-msmarco --do_lower_case \
+  --positive_pids ${dataset}/train_positive_pids.jsonl \
+  --initial_retrieval  predictions/dpr_bm25/train.jsonl  \
+  --num_train_epochs 2 \
+  --output_dir models/reranker_stage1
+```
+
+This produces the model models/reranker_stage1
+
+Apply to check performance
+```bash
+python reranker/reranker_apply.py \
+  --model_type bert --model_name_or_path  models/reranker_stage1 --do_lower_case \
+  --kilt_data /data/KILT/qa/nq2/nq-dev-kilt.jsonl  \
+  --initial_retrieval predictions/dpr_bm25/dev.jsonl   \
+  --output predictions/rerank_dpr_bm25/dev.jsonl 
+```
+
+## Re2G
+
+Train Re2G
+```bash
+python -m torch.distributed.launch --nproc_per_node=2 --nnodes=1 \
+--master_addr="127.0.1.1" --master_port=1234 --use_env --node_rank=0 \
+generation/re2g_train.py \
+  --reranker.model_name_or_path models/reranker_stage1  \
+  --dpr.rag_model_path models/RAG/${dataset}_dpr_rag \
+  --dpr.corpus_endpoint ${CORPUS} \
+  --bm25.jar Anserini/target/anserini-0.4.1-SNAPSHOT-fatjar.jar \
+  --bm25.anserini_index anserini_passage_index \
+  --dpr.n_docs 12 --bm25.n_docs 12 \
+  --kilt_data ${dataset}-train-kilt.jsonl   \
+  --output_dir models/re2g \
+  --model_name facebook/rag-token-nq \
+  --model_path models/RAG/${dataset}_dpr_rag \
+  --warmup_fraction 0.1 --num_train_epochs 1 \
+  --positive_pids ${dataset}/train_positive_pids.jsonl \
+  --learning_rate 3e-5 --full_train_batch_size 128
+```
+
+This produces the model models/re2g (also containing models/re2g/qry_encoder, models/re2g/reranker)
+
+Apply Re2G
+```bash
+python generation/re2g_apply.py \
+  --reranker.model_name_or_path models/re2g/reranker \
+  --dpr.qry_encoder_path models/re2g/qry_encoder \
+  --dpr.corpus_endpoint ${CORPUS} \
+  --bm25.jar Anserini/target/anserini-0.4.1-SNAPSHOT-fatjar.jar \
+  --bm25.anserini_index anserini_passage_index \
+  --dpr.n_docs 12 --bm25.n_docs 12 \
+  --kilt_data ${dataset}-dev-kilt.jsonl  \
+  --output predictions/re2g/dev_apply.jsonl \
+  --model_name facebook/rag-token-nq \
+  --model_path models/re2g \
+  --positive_pids ${dataset}/dev_positive_pids.jsonl
+```
+
+When applying to test you will not have the positive_pids.jsonl, so just leave out that argument. 
+It is only used to run the evaluation after the apply.
