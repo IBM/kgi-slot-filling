@@ -2,8 +2,9 @@
 This is the code for our KILT leaderboard submission to the T-REx, Wizard of Wikipedia, FEVER, NQ, and TriviaQA tasks.  
 It includes code for training a DPR model, a reranker, then continuing training with a RAG-like model incorporating both retrieval and reranking..
 
-
-It is an extension of our KGI model described in: [Robust Retrieval Augmented Generation for Zero-shot Slot Filling](https://aclanthology.org/2021.emnlp-main.148/)  
+References:
+- NAACL 2022: [Re2G: Retrieve, Rerank, Generate](https://aclanthology.org/2022.naacl-main.194/)
+- EMNLP 2021: [Robust Retrieval Augmented Generation for Zero-shot Slot Filling](https://aclanthology.org/2021.emnlp-main.148/)
 
 
 # Process to reproduce
