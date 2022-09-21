@@ -175,17 +175,45 @@ export PYTHONPATH=`pwd`
 python kilt/eval_downstream.py predictions/${dataset}_dev_kilt_format.jsonl ${dev_file}
 ```
 
-## Citation
-```bibtex
-@inproceedings{DBLP:conf/emnlp/GlassRCG21,
-  author    = {Michael R. Glass and
-               Gaetano Rossiello and
-               Md. Faisal Mahbub Chowdhury and
-               Alfio Gliozzo},
-  title     = {Robust Retrieval Augmented Generation for Zero-shot Slot Filling},
-  booktitle = {{EMNLP} {(1)}},
-  pages     = {1939--1949},
-  publisher = {Association for Computational Linguistics},
-  year      = {2021}
+## Publications
+
+### Re2G (NAACL 2022)
+
+ ```bibtex
+@inproceedings{glass-etal-2022-re2g,
+    title = "{R}e2{G}: Retrieve, Rerank, Generate",
+    author = "Glass, Michael  and
+      Rossiello, Gaetano  and
+      Chowdhury, Md Faisal Mahbub  and
+      Naik, Ankita  and
+      Cai, Pengshan  and
+      Gliozzo, Alfio",
+    booktitle = "Proceedings of the 2022 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies",
+    month = jul,
+    year = "2022",
+    address = "Seattle, United States",
+    publisher = "Association for Computational Linguistics",
+    url = "https://aclanthology.org/2022.naacl-main.194",
+    pages = "2701--2715",
+}
+```
+
+### KGI (EMNLP 2021)
+ 
+ ```bibtex
+@inproceedings{glass-etal-2021-robust,
+    title = "Robust Retrieval Augmented Generation for Zero-shot Slot Filling",
+    author = "Glass, Michael  and
+      Rossiello, Gaetano  and
+      Chowdhury, Md Faisal Mahbub  and
+      Gliozzo, Alfio",
+    booktitle = "Proceedings of the 2021 Conference on Empirical Methods in Natural Language Processing",
+    month = nov,
+    year = "2021",
+    address = "Online and Punta Cana, Dominican Republic",
+    publisher = "Association for Computational Linguistics",
+    url = "https://aclanthology.org/2021.emnlp-main.148",
+    doi = "10.18653/v1/2021.emnlp-main.148",
+    pages = "1939--1949",
 }
 ```
