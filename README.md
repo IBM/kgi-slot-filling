@@ -2,8 +2,9 @@
 This is the code for our KILT leaderboard submission to the T-REx, Wizard of Wikipedia, FEVER, NQ, and TriviaQA tasks.  
 It includes code for training a DPR model, a reranker, then continuing training with a RAG-like model incorporating both retrieval and reranking..
 
-
-It is an extension of our KGI model described in: [Zero-shot Slot Filling with DPR and RAG](https://arxiv.org/abs/2104.08610)  
+References:
+- NAACL 2022: [Re2G: Retrieve, Rerank, Generate](https://aclanthology.org/2022.naacl-main.194/)
+- EMNLP 2021: [Robust Retrieval Augmented Generation for Zero-shot Slot Filling](https://aclanthology.org/2021.emnlp-main.148/)
 
 
 # Process to reproduce
@@ -12,7 +13,7 @@ It is an extension of our KGI model described in: [Zero-shot Slot Filling with D
 ## Download the [KILT data and knowledge source](https://github.com/facebookresearch/KILT)
 * [KILT Knowledge Source](http://dl.fbaipublicfiles.com/KILT/kilt_knowledgesource.json)
 
-This produces the files ${dataset}-train-kilt.jsonl, ${dataset}-dev-kilt.jsonl, and kilt_knowledgesource.json
+This produces the files \\${dataset}-train-kilt.jsonl, \\${dataset}-dev-kilt.jsonl, and kilt_knowledgesource.json
 
 
 
@@ -24,14 +25,14 @@ python corpus/kilt_passage_corpus.py \
 ```
 This produces the directory kilt_passages and the file passage_ids.txt
 
-Generate the first phase of the DPR training data. The directory ${dataset} should contain the KILT training and dev files (-train-kilt.jsonl, -dev-kilt.jsonl)
+Generate the first phase of the DPR training data. The directory \\${dataset} should contain the KILT training and dev files (-train-kilt.jsonl, -dev-kilt.jsonl)
 ```bash
 python dpr/kilt2positive_pids.py \
 --kilt_data_dir ${dataset}  \
 --passage_ids passage_ids.txt \
 --kilt_passages kilt_passages
 ```
-This produces the files ${dataset}/train_positive_pids.jsonl and ${dataset}/dev_positive_pids.jsonl
+This produces the files \\${dataset}/train_positive_pids.jsonl and \\${dataset}/dev_positive_pids.jsonl
 
 ## BM25 index
 Download and build [Anserini](https://github.com/castorini/anserini). 
@@ -66,7 +67,7 @@ python dpr/dpr_bm25_negatives.py \
   --anserini_index anserini_passage_index \
   --output_dir ${dataset}_dpr_training_data
 ```
-This produces the directory ${dataset}_dpr_training_data
+This produces the directory \\${dataset}_dpr_training_data
 
 #### Optional: Establish BM25 baseline
 ```bash
@@ -93,7 +94,7 @@ python dpr/biencoder_trainer.py \
 --full_train_batch_size 128 \
 --max_grad_norm 1.0 --learning_rate 5e-5
 ```
-This produces the model models/DPR/${dataset} (containing models/DPR/${dataset}/qry_encoder and models/DPR/${dataset}/ctx_encoder)
+This produces the model models/DPR/\\${dataset} (containing models/DPR/\\${dataset}/qry_encoder and models/DPR/\\${dataset}/ctx_encoder)
 
 #### Optional: check DPR is training well by using it to rerank BM25 results
 ```bash
@@ -110,7 +111,7 @@ python dpr/prepare_rag_model.py \
 --save_dir models/RAG/${dataset}_dpr_rag_init  \
 --qry_encoder_path models/DPR/${dataset}/qry_encoder
 ```
-This produces the model models/RAG/${dataset}_dpr_rag_init
+This produces the model models/RAG/\\${dataset}_dpr_rag_init
 
 #### Create the DPR indexed corpus
 Encode the passages
@@ -138,7 +139,7 @@ python dpr/faiss_index.py \
 --corpus kilt_passages_${dataset}/passages_2_of_2.json.gz.records \
 --scalar_quantizer 8
 ```
-This produces the directory kilt_passages_${dataset}
+This produces the directory kilt_passages_\\${dataset}
 
 #### Optional: Apply the trained DPR
 ```bash
@@ -195,7 +196,7 @@ python generation/kgi_train.py \
   --warmup_fraction 0.05  --num_train_epochs 2 \
   --learning_rate 3e-5 --full_train_batch_size 128 --gradient_accumulation_steps 64
 ```
-This produces the model models/RAG/${dataset}_dpr_rag
+This produces the model models/RAG/\\${dataset}_dpr_rag
 
 Apply RAG
 ```bash
@@ -320,3 +321,50 @@ python generation/re2g_apply.py \
 
 When applying to test you will not have the positive_pids.jsonl, so just leave out that argument. 
 It is only used to run the evaluation after the apply.
+
+## Publications
+
+### Re2G (NAACL 2022)
+
+ ```bibtex
+@inproceedings{glass-etal-2022-re2g,
+    title = "{R}e2{G}: Retrieve, Rerank, Generate",
+    author = "Glass, Michael  and
+      Rossiello, Gaetano  and
+      Chowdhury, Md Faisal Mahbub  and
+      Naik, Ankita  and
+      Cai, Pengshan  and
+      Gliozzo, Alfio",
+    booktitle = "Proceedings of the 2022 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies",
+    month = jul,
+    year = "2022",
+    address = "Seattle, United States",
+    publisher = "Association for Computational Linguistics",
+    url = "https://aclanthology.org/2022.naacl-main.194",
+    pages = "2701--2715",
+}
+```
+
+### KGI (EMNLP 2021)
+ 
+ ```bibtex
+@inproceedings{glass-etal-2021-robust,
+    title = "Robust Retrieval Augmented Generation for Zero-shot Slot Filling",
+    author = "Glass, Michael  and
+      Rossiello, Gaetano  and
+      Chowdhury, Md Faisal Mahbub  and
+      Gliozzo, Alfio",
+    booktitle = "Proceedings of the 2021 Conference on Empirical Methods in Natural Language Processing",
+    month = nov,
+    year = "2021",
+    address = "Online and Punta Cana, Dominican Republic",
+    publisher = "Association for Computational Linguistics",
+    url = "https://aclanthology.org/2021.emnlp-main.148",
+    doi = "10.18653/v1/2021.emnlp-main.148",
+    pages = "1939--1949",
+}
+```
+
+ ## License
+  
+ This work is released under Apache 2.0 license.
